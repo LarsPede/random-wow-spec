@@ -863,7 +863,7 @@ function saveKnownPlayers(names) {
 }
 
 function saveExclusionsForPlayer(name, exclSet) {
-  if (!name) return;
+  if (!name || name.startsWith('Player ')) return;
   savedExclusions[name] = [...exclSet];
   localStorage.setItem('wow-player-exclusions', JSON.stringify(savedExclusions));
 }
