@@ -411,6 +411,63 @@
       text-decoration: line-through;
       border-color: var(--border);
     }
+
+    /* ===== PLAYER AUTOCOMPLETE ===== */
+    .player-input-wrap {
+      position: relative;
+      flex: 1;
+    }
+    .player-input-wrap .player-name-input {
+      width: 100%;
+    }
+    .player-suggestions {
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 0;
+      right: 0;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hover);
+      border-radius: var(--radius-sm);
+      z-index: 200;
+      max-height: 180px;
+      overflow-y: auto;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    }
+    .player-suggestion {
+      padding: 7px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text);
+      transition: background 0.1s, color 0.1s;
+    }
+    .player-suggestion:hover {
+      background: var(--bg-alt);
+      color: var(--gold);
+    }
+
+    /* ===== ROLE TOGGLE BUTTONS ===== */
+    .role-toggles {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .btn-role-toggle {
+      flex: 1;
+      padding: 5px 0;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .btn-role-toggle.role-tank   { background: rgba(74,144,217,0.15); color: var(--tank);   border-color: rgba(74,144,217,0.35); }
+    .btn-role-toggle.role-healer { background: rgba(92,184,92,0.13);  color: var(--healer); border-color: rgba(92,184,92,0.35); }
+    .btn-role-toggle.role-dps    { background: rgba(217,83,79,0.13);  color: var(--dps);    border-color: rgba(217,83,79,0.35); }
+    .btn-role-toggle.all-excluded { opacity: 0.45; }
+    .btn-role-toggle:hover { filter: brightness(1.2); }
   </style>
 </head>
 <body>
@@ -579,6 +636,119 @@ function pickUnused(pool, used) {
 
 function specKey(s) { return s.className + ':' + s.specName; }
 
+// Returns true if playerIndex has at least one non-excluded spec for the given role
+function playerCanPlayRole(playerIdx, role) {
+  const excl = exclusions[playerIdx] || new Set();
+  return SPEC_POOLS[role].some(s => !excl.has(specKey(s)));
+}
+
+// Given an array of player indices, try to find a valid role assignment
+// (1 tank, 1 healer, 3 dps) where each player can play their assigned role.
+// Returns a roles array in the same order as playerIndices, or null if impossible.
+function findValidRoleAssignment(playerIndices) {
+  const needed = { tank: 1, healer: 1, dps: 3 };
+  const roles = new Array(playerIndices.length);
+
+  function assign(i) {
+    if (i === playerIndices.length) {
+      return needed.tank === 0 && needed.healer === 0 && needed.dps === 0;
+    }
+    const pIdx = playerIndices[i];
+    for (const role of shuffle(['tank', 'healer', 'dps'])) {
+      if (needed[role] > 0 && playerCanPlayRole(pIdx, role)) {
+        roles[i] = role;
+        needed[role]--;
+        if (assign(i + 1)) return true;
+        needed[role]++;
+      }
+    }
+    return false;
+  }
+
+  return assign(0) ? roles : null;
+}
+
+// When a perfect assignment is impossible, find the one that maximises
+// the number of players assigned a role they have at least one spec for.
+// Among equally-scoring assignments, picks randomly.
+function findBestRoleAssignment(playerIndices) {
+  const n = playerIndices.length;
+  const dists = [];
+  function gen(i, rem, cur) {
+    if (i === n) { dists.push([...cur]); return; }
+    for (const role of ['tank', 'healer', 'dps']) {
+      if (rem[role] > 0) {
+        cur.push(role); rem[role]--;
+        gen(i + 1, rem, cur);
+        rem[role]++; cur.pop();
+      }
+    }
+  }
+  gen(0, { tank: 1, healer: 1, dps: 3 }, []);
+
+  let bestCandidates = [];
+  let bestScore = -1;
+  for (const roles of dists) {
+    const score = roles.reduce((s, role, i) => s + (playerCanPlayRole(playerIndices[i], role) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; bestCandidates = [roles]; }
+    else if (score === bestScore) { bestCandidates.push(roles); }
+  }
+  return bestCandidates[Math.floor(Math.random() * bestCandidates.length)];
+}
+
+// Returns a human-readable error string if no valid composition is possible, or null if ok.
+function validateCanRoll() {
+  const count = players.length;
+  if (count < 5) return null; // handled separately by hint
+
+  if (count === 5) {
+    const indices = players.map((_, i) => i);
+    if (!findValidRoleAssignment(shuffle(indices))) {
+      return buildRoleError(indices);
+    }
+    return null;
+  }
+
+  // >5 players: check if ANY subset of 5 can form a valid group
+  const indices = players.map((_, i) => i);
+  // Try a reasonable number of subsets rather than all C(n,5)
+  const shuffled = shuffle(indices);
+  for (let start = 0; start <= shuffled.length - 5; start++) {
+    const subset = shuffled.slice(start, start + 5);
+    if (findValidRoleAssignment([...subset])) return null;
+  }
+  // Also try all combinations if the quick scan found nothing
+  const combos = combinations(indices, 5);
+  for (const subset of combos) {
+    if (findValidRoleAssignment([...subset])) return null;
+  }
+  return buildRoleError(indices);
+}
+
+function buildRoleError(indices) {
+  const canTank   = indices.filter(i => playerCanPlayRole(i, 'tank'));
+  const canHeal   = indices.filter(i => playerCanPlayRole(i, 'healer'));
+  const canDps    = indices.filter(i => playerCanPlayRole(i, 'dps'));
+  if (canTank.length === 0)   return 'No player can fill the tank role — at least one player must have a tank spec available.';
+  if (canHeal.length === 0)   return 'No player can fill the healer role — at least one player must have a healer spec available.';
+  if (canDps.length < 3)      return `Only ${canDps.length} player(s) can fill DPS — need at least 3.`;
+  return 'Cannot form a valid group with the current role exclusions.';
+}
+
+function combinations(arr, k) {
+  const result = [];
+  function pick(start, chosen) {
+    if (chosen.length === k) { result.push([...chosen]); return; }
+    for (let i = start; i < arr.length; i++) {
+      chosen.push(arr[i]);
+      pick(i + 1, chosen);
+      chosen.pop();
+    }
+  }
+  pick(0, []);
+  return result;
+}
+
 // ===== ALGORITHM =====
 function buildComposition(playerSlots) {
   // playerSlots: [{ player, role, excluded: Set }, ...] — 1 tank, 1 healer, 3 dps
@@ -622,9 +792,20 @@ function generateCompositions(namedPlayers, playerExclusions) {
 
   if (count < 5) return [];
 
+  // Map from resolved name back to player index for role eligibility checks
+  const nameToIdx = new Map(namedPlayers.map((name, i) => [name, i]));
+
+  function validSlotsFor(chosen) {
+    const shuffledChosen = shuffle(chosen);
+    const indices = shuffledChosen.map(name => nameToIdx.get(name));
+    const roles = findValidRoleAssignment([...indices]) || findBestRoleAssignment([...indices]);
+    if (!roles) return null;
+    return makeSlots(shuffledChosen, roles);
+  }
+
   if (count === 5) {
-    const roles = shuffle(['tank', 'healer', 'dps', 'dps', 'dps']);
-    const slots = makeSlots(shuffle(namedPlayers), roles);
+    const slots = validSlotsFor(shuffle(namedPlayers));
+    if (!slots) return [];
     return [{ rows: buildComposition(slots), bench: [] }];
   }
 
@@ -638,8 +819,8 @@ function generateCompositions(namedPlayers, playerExclusions) {
     attempts++;
     const chosen = shuffle(namedPlayers).slice(0, 5);
     const bench  = namedPlayers.filter(p => !chosen.includes(p));
-    const roles  = shuffle(['tank', 'healer', 'dps', 'dps', 'dps']);
-    const slots  = makeSlots(chosen, roles);
+    const slots  = validSlotsFor(chosen);
+    if (!slots) continue;
     const key    = slotKey(slots);
 
     if (seenKeys.has(key)) continue;
@@ -655,6 +836,20 @@ let players = ['', '', '', '', ''];
 // exclusions[i] = Set of "className:specName" strings excluded for player i
 let exclusions = [new Set(), new Set(), new Set(), new Set(), new Set()];
 
+// ===== KNOWN PLAYERS (localStorage) =====
+let knownPlayers = JSON.parse(localStorage.getItem('wow-known-players') || '[]');
+
+function saveKnownPlayers(names) {
+  let changed = false;
+  for (const name of names) {
+    if (name && !knownPlayers.includes(name)) {
+      knownPlayers.push(name);
+      changed = true;
+    }
+  }
+  if (changed) localStorage.setItem('wow-known-players', JSON.stringify(knownPlayers));
+}
+
 // ===== DOM HELPERS =====
 const playerList = document.getElementById('player-list');
 const rollBtn    = document.getElementById('roll-btn');
@@ -664,6 +859,61 @@ const compGrid   = document.getElementById('comp-grid');
 
 function playerName(i) {
   return players[i].trim() || `Player ${i + 1}`;
+}
+
+// ===== AUTOCOMPLETE =====
+let activeSuggestionEl = null;
+
+function attachDropdown(input, playerIdx) {
+  function getMatches() {
+    const filter = input.value.trim().toLowerCase();
+    const usedElsewhere = new Set(
+      players.filter((p, j) => j !== playerIdx && p.trim()).map(p => p.trim())
+    );
+    return knownPlayers.filter(p => {
+      if (usedElsewhere.has(p)) return false;
+      return filter === '' || p.toLowerCase().includes(filter);
+    });
+  }
+
+  function openDropdown() {
+    closeDropdown();
+    const matches = getMatches();
+    if (matches.length === 0) return;
+    const list = document.createElement('div');
+    list.className = 'player-suggestions';
+    for (const p of matches) {
+      const item = document.createElement('div');
+      item.className = 'player-suggestion';
+      item.textContent = p;
+      item.addEventListener('mousedown', e => {
+        e.preventDefault(); // keep focus so blur fires after
+        input.value = p;
+        players[playerIdx] = p;
+        updateHint();
+        closeDropdown();
+      });
+      list.appendChild(item);
+    }
+    input.parentElement.appendChild(list);
+    activeSuggestionEl = list;
+  }
+
+  function closeDropdown() {
+    if (activeSuggestionEl) {
+      activeSuggestionEl.remove();
+      activeSuggestionEl = null;
+    }
+  }
+
+  input.addEventListener('focus', openDropdown);
+  input.addEventListener('input', () => {
+    players[playerIdx] = input.value;
+    updateHint();
+    openDropdown();
+  });
+  input.addEventListener('blur', () => setTimeout(closeDropdown, 150));
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') closeDropdown(); });
 }
 
 function renderPlayerList() {
@@ -681,24 +931,73 @@ function renderPlayerList() {
     // Main row
     const row = document.createElement('div');
     row.className = 'player-row';
-    row.innerHTML = `
-      <span class="player-num">${i + 1}.</span>
-      <input class="player-name-input" type="text" placeholder="Player ${i + 1}" value="${escHtml(name)}" data-index="${i}" />
-      <button class="btn-exclude${exclCount > 0 ? ' active' : ''}" data-index="${i}" title="Exclude specs">
-        ⊘${exclCount > 0 ? `<span class="exclude-count">${exclCount}</span>` : ''}
-      </button>
-      <button class="btn-remove" data-index="${i}" title="Remove" ${players.length <= 2 ? 'disabled' : ''}>×</button>
-    `;
+
+    const numSpan = document.createElement('span');
+    numSpan.className = 'player-num';
+    numSpan.textContent = `${i + 1}.`;
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'player-input-wrap';
+
+    const input = document.createElement('input');
+    input.className = 'player-name-input';
+    input.type = 'text';
+    input.placeholder = `Player ${i + 1}`;
+    input.value = name;
+    input.dataset.index = String(i);
+    attachDropdown(input, i);
+    inputWrap.appendChild(input);
+
+    const excludeBtn = document.createElement('button');
+    excludeBtn.className = `btn-exclude${exclCount > 0 ? ' active' : ''}`;
+    excludeBtn.dataset.index = String(i);
+    excludeBtn.title = 'Exclude specs';
+    excludeBtn.innerHTML = `⊘${exclCount > 0 ? `<span class="exclude-count">${exclCount}</span>` : ''}`;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-remove';
+    removeBtn.dataset.index = String(i);
+    removeBtn.title = 'Remove';
+    removeBtn.disabled = players.length <= 2;
+    removeBtn.textContent = '×';
+
+    row.appendChild(numSpan);
+    row.appendChild(inputWrap);
+    row.appendChild(excludeBtn);
+    row.appendChild(removeBtn);
     playerList.appendChild(row);
 
     // Exclusion panel
     const panel = document.createElement('div');
     panel.className = 'exclude-panel' + (openPanels.has(i) ? ' open' : '');
     panel.dataset.index = i;
+    // Determine per-role exclusion state for toggle buttons
+    const roleAllExcluded = {};
+    for (const role of ['tank', 'healer', 'dps']) {
+      const roleSpecs = [];
+      for (const [className, cls] of Object.entries(CLASSES)) {
+        for (const spec of cls.specs) {
+          if (spec.role === role) roleSpecs.push(className + ':' + spec.name);
+        }
+      }
+      roleAllExcluded[role] = roleSpecs.length > 0 && roleSpecs.every(k => excl.has(k));
+    }
+
     panel.innerHTML = `
       <div class="exclude-panel-header">
         <span>Exclude specs (won't be assigned these)</span>
         ${exclCount > 0 ? `<button class="btn-clear-exclusions" data-index="${i}">Clear all (${exclCount})</button>` : ''}
+      </div>
+      <div class="role-toggles">
+        <button class="btn-role-toggle role-tank${roleAllExcluded.tank ? ' all-excluded' : ''}" data-player="${i}" data-role="tank">
+          ${roleAllExcluded.tank ? 'Enable' : 'Exclude'} Tank
+        </button>
+        <button class="btn-role-toggle role-healer${roleAllExcluded.healer ? ' all-excluded' : ''}" data-player="${i}" data-role="healer">
+          ${roleAllExcluded.healer ? 'Enable' : 'Exclude'} Healer
+        </button>
+        <button class="btn-role-toggle role-dps${roleAllExcluded.dps ? ' all-excluded' : ''}" data-player="${i}" data-role="dps">
+          ${roleAllExcluded.dps ? 'Enable' : 'Exclude'} DPS
+        </button>
       </div>
       <div class="class-groups">
         ${Object.entries(CLASSES).map(([className, cls]) => `
@@ -908,13 +1207,6 @@ document.getElementById('btn-add-player').addEventListener('click', () => {
   renderPlayerList();
 });
 
-playerList.addEventListener('input', e => {
-  if (e.target.matches('.player-name-input')) {
-    players[+e.target.dataset.index] = e.target.value;
-    updateHint();
-  }
-});
-
 playerList.addEventListener('click', e => {
   // Remove player
   if (e.target.closest('.btn-remove') && !e.target.closest('.btn-remove').disabled) {
@@ -930,6 +1222,28 @@ playerList.addEventListener('click', e => {
     const i = +e.target.closest('.btn-exclude').dataset.index;
     const panel = playerList.querySelector(`.exclude-panel[data-index="${i}"]`);
     if (panel) panel.classList.toggle('open');
+    return;
+  }
+
+  // Toggle all specs of a role for a player
+  if (e.target.closest('.btn-role-toggle')) {
+    const btn = e.target.closest('.btn-role-toggle');
+    const i    = +btn.dataset.player;
+    const role = btn.dataset.role;
+    if (!exclusions[i]) exclusions[i] = new Set();
+    const roleSpecs = [];
+    for (const [className, cls] of Object.entries(CLASSES)) {
+      for (const spec of cls.specs) {
+        if (spec.role === role) roleSpecs.push(className + ':' + spec.name);
+      }
+    }
+    const allExcluded = roleSpecs.every(k => exclusions[i].has(k));
+    if (allExcluded) {
+      roleSpecs.forEach(k => exclusions[i].delete(k));
+    } else {
+      roleSpecs.forEach(k => exclusions[i].add(k));
+    }
+    renderPlayerList();
     return;
   }
 
@@ -958,7 +1272,19 @@ playerList.addEventListener('click', e => {
 });
 
 rollBtn.addEventListener('click', () => {
+  const warning = validateCanRoll();
+  if (warning) {
+    rollHint.textContent = warning + ' Rolling best effort.';
+    rollHint.className = 'error';
+  } else {
+    rollHint.textContent = players.length > 5
+      ? `${players.length} players — will generate multiple group compositions.`
+      : '';
+    rollHint.className = '';
+  }
+
   const named = players.map((p, i) => p.trim() || `Player ${i + 1}`);
+  saveKnownPlayers(players.map(p => p.trim()).filter(Boolean));
   // Build exclusion map keyed by resolved name
   const exclMap = new Map();
   named.forEach((name, i) => exclMap.set(name, exclusions[i] || new Set()));
