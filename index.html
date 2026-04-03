@@ -757,98 +757,87 @@ function combinations(arr, k) {
 
 // ===== ALGORITHM =====
 
-// Assign each player exactly one spec (respecting exclusions).
-// Returns an array of { player, className, specName, role, color } in the same order as namedPlayers.
-function assignSpecs(namedPlayers, playerExclusions) {
-  // Shuffle all specs per role so picks are random
-  const shuffledPools = {
-    tank:   shuffle([...SPEC_POOLS.tank]),
-    healer: shuffle([...SPEC_POOLS.healer]),
-    dps:    shuffle([...SPEC_POOLS.dps]),
-  };
-  const globalUsed = new Set();
-
-  return namedPlayers.map(name => {
-    const excl = playerExclusions.get(name) || new Set();
-
-    // Collect all specs this player can play (not excluded), shuffled
-    const available = shuffle([
-      ...shuffledPools.tank,
-      ...shuffledPools.healer,
-      ...shuffledPools.dps,
-    ].filter(s => !excl.has(specKey(s))));
-
-    // Prefer one not yet picked globally, fall back to any available
-    const pick = available.find(s => !globalUsed.has(specKey(s))) || available[0];
-    if (pick) globalUsed.add(specKey(pick));
-
-    // If nothing available (all excluded), fall back to a random spec
-    const spec = pick || SPEC_POOLS.dps[Math.floor(Math.random() * SPEC_POOLS.dps.length)];
-    return { player: name, className: spec.className, specName: spec.specName, role: spec.role, color: spec.color };
-  });
+// Pick one spec for a player given their assigned role, respecting exclusions.
+// Prefers specs not already used in this group (passed via usedSet).
+function pickSpecForRole(name, role, playerExclusions, usedSet) {
+  const excl = playerExclusions.get(name) || new Set();
+  const pool = shuffle([...SPEC_POOLS[role]]);
+  const preferred = pool.filter(s => !excl.has(specKey(s)) && !usedSet.has(specKey(s)));
+  const fallback  = pool.filter(s => !excl.has(specKey(s)));
+  const spec = preferred[0] || fallback[0] || pool[0];
+  if (spec) usedSet.add(specKey(spec));
+  return spec;
 }
 
-// Given pre-assigned player entries, try to arrange 5 of them into a valid group (1t/1h/3d).
-// Returns { rows, bench } or null.
-function makeGroupFrom(entries) {
-  const tanks   = entries.filter(e => e.role === 'tank');
-  const healers  = entries.filter(e => e.role === 'healer');
-  const dps      = entries.filter(e => e.role === 'dps');
-
-  if (tanks.length < 1 || healers.length < 1 || dps.length < 3) return null;
-
-  const tank   = tanks[0];
-  const healer = healers[0];
-  const dpsRows = dps.slice(0, 3);
-
-  const rows = [tank, healer, ...dpsRows];
-  const bench = entries.filter(e => !rows.includes(e));
-  return { rows, bench };
+// Build a group of 5 rows given names and their roles (parallel arrays).
+function buildGroupRows(names, roles, playerExclusions) {
+  const usedSet = new Set();
+  return names.map((name, i) => {
+    const spec = pickSpecForRole(name, roles[i], playerExclusions, usedSet);
+    return { player: name, className: spec.className, specName: spec.specName, role: spec.role, color: spec.color };
+  });
 }
 
 function generateCompositions(namedPlayers, playerExclusions) {
   const count = namedPlayers.length;
   if (count < 5) return [];
 
-  // Step 1: assign every player exactly one spec
-  const assigned = assignSpecs(namedPlayers, playerExclusions);
+  const nameToIdx = new Map(namedPlayers.map((name, i) => [name, i]));
 
-  // Step 2: partition into groups
-  if (count % 5 === 0) {
-    // Perfect split — shuffle assigned players and cut into groups of 5
-    const shuffled = shuffle([...assigned]);
-    const results = [];
-    for (let i = 0; i < shuffled.length; i += 5) {
-      const group = shuffled.slice(i, i + 5);
-      const g = makeGroupFrom(group);
-      results.push(g ? { rows: g.rows, bench: [] } : { rows: group, bench: [] });
-    }
-    return results;
+  // Assign roles (1t/1h/3d) to a group of 5 names, returns roles array or null.
+  function getRoles(group) {
+    const shuffled = shuffle([...group]);
+    const indices  = shuffled.map(name => nameToIdx.get(name));
+    const roles = findValidRoleAssignment(indices) || findBestRoleAssignment(indices);
+    return roles ? { names: shuffled, roles } : null;
   }
 
-  // Not divisible by 5 — produce (count % 5) distinct group combinations.
-  // Each combination picks a valid set of 5 from all players.
+  if (count % 5 === 0) {
+    // Shuffle all players and cut into non-overlapping groups of 5.
+    // Retry the whole shuffle until every group gets a valid role assignment.
+    let results = null;
+    for (let attempt = 0; attempt < 60 && !results; attempt++) {
+      const shuffled = shuffle([...namedPlayers]);
+      const groups = [];
+      let ok = true;
+      for (let i = 0; i < shuffled.length; i += 5) {
+        const g = getRoles(shuffled.slice(i, i + 5));
+        if (!g) { ok = false; break; }
+        groups.push(g);
+      }
+      if (ok) results = groups;
+    }
+    if (!results) return [];
+    return results.map(g => ({ rows: buildGroupRows(g.names, g.roles, playerExclusions), bench: [] }));
+  }
+
+  // Not divisible by 5 — produce (count % 5) distinct group combinations,
+  // each picking 5 players with a valid 1t/1h/3d assignment.
   const TARGET = count % 5;
-  const results = [];
+  const comboResults = [];
   const seenKeys = new Set();
   let attempts = 0;
 
-  while (results.length < TARGET && attempts < 120) {
+  while (comboResults.length < TARGET && attempts < 120) {
     attempts++;
-    const shuffled = shuffle([...assigned]);
-    const group    = shuffled.slice(0, 5);
-    const bench    = shuffled.slice(5);
+    const shuffled = shuffle([...namedPlayers]);
+    const groupNames = shuffled.slice(0, 5);
+    const bench      = shuffled.slice(5);
 
-    const key = group.map(e => e.player).sort().join('|');
+    const key = [...groupNames].sort().join('|');
     if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
 
-    const g = makeGroupFrom(group);
-    results.push(g ? { rows: g.rows, bench: [...g.bench, ...bench].map(e => e.player) }
-                   : { rows: group, bench: bench.map(e => e.player) });
+    const g = getRoles(groupNames);
+    if (!g) continue;
+
+    seenKeys.add(key);
+    comboResults.push({
+      rows:  buildGroupRows(g.names, g.roles, playerExclusions),
+      bench: bench,
+    });
   }
 
-  return results;
+  return comboResults;
 }
 
 // ===== STATE =====
