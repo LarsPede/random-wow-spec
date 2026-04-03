@@ -859,6 +859,9 @@ let exclusions = [new Set(), new Set(), new Set(), new Set(), new Set()];
 // ===== KNOWN PLAYERS (localStorage) =====
 let knownPlayers = JSON.parse(localStorage.getItem('wow-known-players') || '[]');
 
+// exclusions per player name: { [name]: string[] }
+let savedExclusions = JSON.parse(localStorage.getItem('wow-player-exclusions') || '{}');
+
 function saveKnownPlayers(names) {
   let changed = false;
   for (const name of names) {
@@ -868,6 +871,17 @@ function saveKnownPlayers(names) {
     }
   }
   if (changed) localStorage.setItem('wow-known-players', JSON.stringify(knownPlayers));
+}
+
+function saveExclusionsForPlayer(name, exclSet) {
+  if (!name) return;
+  savedExclusions[name] = [...exclSet];
+  localStorage.setItem('wow-player-exclusions', JSON.stringify(savedExclusions));
+}
+
+function loadExclusionsForPlayer(name) {
+  if (!name || !savedExclusions[name]) return new Set();
+  return new Set(savedExclusions[name]);
 }
 
 // ===== DOM HELPERS =====
@@ -910,8 +924,10 @@ function attachDropdown(input, playerIdx) {
         e.preventDefault(); // keep focus so blur fires after
         input.value = p;
         players[playerIdx] = p;
+        exclusions[playerIdx] = loadExclusionsForPlayer(p);
         updateHint();
         closeDropdown();
+        renderPlayerList();
       });
       list.appendChild(item);
     }
@@ -1269,6 +1285,7 @@ playerList.addEventListener('click', e => {
     } else {
       roleSpecs.forEach(k => exclusions[i].add(k));
     }
+    saveExclusionsForPlayer(players[i].trim() || `Player ${i + 1}`, exclusions[i]);
     renderPlayerList();
     return;
   }
@@ -1277,6 +1294,7 @@ playerList.addEventListener('click', e => {
   if (e.target.matches('.btn-clear-exclusions')) {
     const i = +e.target.dataset.index;
     exclusions[i] = new Set();
+    saveExclusionsForPlayer(players[i].trim() || `Player ${i + 1}`, exclusions[i]);
     renderPlayerList();
     return;
   }
@@ -1294,6 +1312,7 @@ playerList.addEventListener('click', e => {
     } else {
       classSpecs.forEach(k => exclusions[i].add(k));
     }
+    saveExclusionsForPlayer(players[i].trim() || `Player ${i + 1}`, exclusions[i]);
     renderPlayerList();
     return;
   }
@@ -1309,6 +1328,7 @@ playerList.addEventListener('click', e => {
     } else {
       exclusions[i].add(key);
     }
+    saveExclusionsForPlayer(players[i].trim() || `Player ${i + 1}`, exclusions[i]);
     renderPlayerList();
     return;
   }
@@ -1330,6 +1350,7 @@ rollBtn.addEventListener('click', () => {
 
   const named = players.map((p, i) => p.trim() || `Player ${i + 1}`);
   saveKnownPlayers(players.map(p => p.trim()).filter(Boolean));
+  named.forEach((name, i) => saveExclusionsForPlayer(name, exclusions[i] || new Set()));
   // Build exclusion map keyed by resolved name
   const exclMap = new Map();
   named.forEach((name, i) => exclMap.set(name, exclusions[i] || new Set()));
