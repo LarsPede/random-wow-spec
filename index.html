@@ -381,7 +381,13 @@
       letter-spacing: 0.1em;
       text-transform: uppercase;
       margin-bottom: 5px;
+      cursor: pointer;
+      display: inline-block;
+      user-select: none;
+      transition: opacity 0.15s;
     }
+    .class-group-name:hover { opacity: 0.75; }
+    .class-group-name.all-excluded { opacity: 0.35; text-decoration: line-through; }
     .spec-chips {
       display: flex;
       flex-wrap: wrap;
@@ -750,82 +756,96 @@ function combinations(arr, k) {
 }
 
 // ===== ALGORITHM =====
-function buildComposition(playerSlots) {
-  // playerSlots: [{ player, role, excluded: Set }, ...] — 1 tank, 1 healer, 3 dps
-  const used = new Set();
-  const tanks    = shuffle(SPEC_POOLS.tank);
-  const healers  = shuffle(SPEC_POOLS.healer);
-  const dpsSpecs = shuffle(SPEC_POOLS.dps);
 
-  const roleQueues = { tank: tanks, healer: healers, dps: dpsSpecs };
+// Assign each player exactly one spec (respecting exclusions).
+// Returns an array of { player, className, specName, role, color } in the same order as namedPlayers.
+function assignSpecs(namedPlayers, playerExclusions) {
+  // Shuffle all specs per role so picks are random
+  const shuffledPools = {
+    tank:   shuffle([...SPEC_POOLS.tank]),
+    healer: shuffle([...SPEC_POOLS.healer]),
+    dps:    shuffle([...SPEC_POOLS.dps]),
+  };
+  const globalUsed = new Set();
 
-  return playerSlots.map(slot => {
-    const excl = slot.excluded || new Set();
-    const queue = roleQueues[slot.role];
+  return namedPlayers.map(name => {
+    const excl = playerExclusions.get(name) || new Set();
 
-    // Prefer specs not excluded by this player and not used in this group
-    const preferred = queue.filter(s => !excl.has(specKey(s)));
-    // If no preferred specs remain unused, fall back to any unused spec, then allow repeat
-    const pool = preferred.length > 0 ? preferred : queue;
-    const spec = pickUnused(pool, used);
-    return { player: slot.player, ...spec };
+    // Collect all specs this player can play (not excluded), shuffled
+    const available = shuffle([
+      ...shuffledPools.tank,
+      ...shuffledPools.healer,
+      ...shuffledPools.dps,
+    ].filter(s => !excl.has(specKey(s))));
+
+    // Prefer one not yet picked globally, fall back to any available
+    const pick = available.find(s => !globalUsed.has(specKey(s))) || available[0];
+    if (pick) globalUsed.add(specKey(pick));
+
+    // If nothing available (all excluded), fall back to a random spec
+    const spec = pick || SPEC_POOLS.dps[Math.floor(Math.random() * SPEC_POOLS.dps.length)];
+    return { player: name, className: spec.className, specName: spec.specName, role: spec.role, color: spec.color };
   });
 }
 
-function slotKey(slots) {
-  // A string fingerprint of the player→role mapping for dedup
-  return slots.map(s => `${s.player}:${s.role}`).sort().join('|');
+// Given pre-assigned player entries, try to arrange 5 of them into a valid group (1t/1h/3d).
+// Returns { rows, bench } or null.
+function makeGroupFrom(entries) {
+  const tanks   = entries.filter(e => e.role === 'tank');
+  const healers  = entries.filter(e => e.role === 'healer');
+  const dps      = entries.filter(e => e.role === 'dps');
+
+  if (tanks.length < 1 || healers.length < 1 || dps.length < 3) return null;
+
+  const tank   = tanks[0];
+  const healer = healers[0];
+  const dpsRows = dps.slice(0, 3);
+
+  const rows = [tank, healer, ...dpsRows];
+  const bench = entries.filter(e => !rows.includes(e));
+  return { rows, bench };
 }
 
 function generateCompositions(namedPlayers, playerExclusions) {
-  // namedPlayers: string[] — resolved display names
-  // playerExclusions: Map<name, Set> — exclusions keyed by resolved name
   const count = namedPlayers.length;
-
-  function makeSlots(chosen, roles) {
-    return chosen.map((p, i) => ({
-      player: p,
-      role: roles[i],
-      excluded: playerExclusions.get(p) || new Set()
-    }));
-  }
-
   if (count < 5) return [];
 
-  // Map from resolved name back to player index for role eligibility checks
-  const nameToIdx = new Map(namedPlayers.map((name, i) => [name, i]));
+  // Step 1: assign every player exactly one spec
+  const assigned = assignSpecs(namedPlayers, playerExclusions);
 
-  function validSlotsFor(chosen) {
-    const shuffledChosen = shuffle(chosen);
-    const indices = shuffledChosen.map(name => nameToIdx.get(name));
-    const roles = findValidRoleAssignment([...indices]) || findBestRoleAssignment([...indices]);
-    if (!roles) return null;
-    return makeSlots(shuffledChosen, roles);
+  // Step 2: partition into groups
+  if (count % 5 === 0) {
+    // Perfect split — shuffle assigned players and cut into groups of 5
+    const shuffled = shuffle([...assigned]);
+    const results = [];
+    for (let i = 0; i < shuffled.length; i += 5) {
+      const group = shuffled.slice(i, i + 5);
+      const g = makeGroupFrom(group);
+      results.push(g ? { rows: g.rows, bench: [] } : { rows: group, bench: [] });
+    }
+    return results;
   }
 
-  if (count === 5) {
-    const slots = validSlotsFor(shuffle(namedPlayers));
-    if (!slots) return [];
-    return [{ rows: buildComposition(slots), bench: [] }];
-  }
-
-  // >5 players: generate up to 3 distinct compositions
-  const TARGET = 3;
+  // Not divisible by 5 — produce (count % 5) distinct group combinations.
+  // Each combination picks a valid set of 5 from all players.
+  const TARGET = count % 5;
   const results = [];
   const seenKeys = new Set();
   let attempts = 0;
 
-  while (results.length < TARGET && attempts < 80) {
+  while (results.length < TARGET && attempts < 120) {
     attempts++;
-    const chosen = shuffle(namedPlayers).slice(0, 5);
-    const bench  = namedPlayers.filter(p => !chosen.includes(p));
-    const slots  = validSlotsFor(chosen);
-    if (!slots) continue;
-    const key    = slotKey(slots);
+    const shuffled = shuffle([...assigned]);
+    const group    = shuffled.slice(0, 5);
+    const bench    = shuffled.slice(5);
 
+    const key = group.map(e => e.player).sort().join('|');
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-    results.push({ rows: buildComposition(slots), bench });
+
+    const g = makeGroupFrom(group);
+    results.push(g ? { rows: g.rows, bench: [...g.bench, ...bench].map(e => e.player) }
+                   : { rows: group, bench: bench.map(e => e.player) });
   }
 
   return results;
@@ -1000,9 +1020,13 @@ function renderPlayerList() {
         </button>
       </div>
       <div class="class-groups">
-        ${Object.entries(CLASSES).map(([className, cls]) => `
+        ${Object.entries(CLASSES).map(([className, cls]) => {
+          const classSpecs = cls.specs.map(spec => className + ':' + spec.name);
+          const classAllExcl = classSpecs.every(k => excl.has(k));
+          return `
           <div class="class-group">
-            <div class="class-group-name" style="color:${cls.color}">${escHtml(className)}</div>
+            <div class="class-group-name${classAllExcl ? ' all-excluded' : ''}" style="color:${cls.color}"
+              data-player="${i}" data-class="${escHtml(className)}">${escHtml(className)}</div>
             <div class="spec-chips">
               ${cls.specs.map(spec => {
                 const key = className + ':' + spec.name;
@@ -1013,8 +1037,8 @@ function renderPlayerList() {
                 >${escHtml(spec.name)}<span class="chip-role">${spec.role}</span></span>`;
               }).join('')}
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     `;
     playerList.appendChild(panel);
@@ -1032,8 +1056,10 @@ function updateHint() {
     rollHint.className = 'error';
     rollBtn.disabled = true;
   } else {
-    rollHint.textContent = players.length > 5
-      ? `${players.length} players — will generate multiple group compositions.`
+    const n = players.length;
+    const groups = n % 5 === 0 ? n / 5 : n % 5;
+    rollHint.textContent = n > 5
+      ? `${n} players — will generate ${groups} group${groups > 1 ? 's' : ''}.`
       : '';
     rollHint.className = '';
     rollBtn.disabled = false;
@@ -1201,7 +1227,7 @@ function runSlotMachine(finalCompositions) {
 
 // ===== EVENTS =====
 document.getElementById('btn-add-player').addEventListener('click', () => {
-  if (players.length >= 10) return;
+  if (players.length >= 25) return;
   players.push('');
   exclusions.push(new Set());
   renderPlayerList();
@@ -1255,6 +1281,23 @@ playerList.addEventListener('click', e => {
     return;
   }
 
+  // Toggle all specs of a class for a player
+  if (e.target.closest('.class-group-name')) {
+    const el = e.target.closest('.class-group-name');
+    const i         = +el.dataset.player;
+    const className = el.dataset.class;
+    if (!exclusions[i]) exclusions[i] = new Set();
+    const classSpecs = CLASSES[className].specs.map(spec => className + ':' + spec.name);
+    const allExcluded = classSpecs.every(k => exclusions[i].has(k));
+    if (allExcluded) {
+      classSpecs.forEach(k => exclusions[i].delete(k));
+    } else {
+      classSpecs.forEach(k => exclusions[i].add(k));
+    }
+    renderPlayerList();
+    return;
+  }
+
   // Toggle individual spec chip
   if (e.target.closest('.spec-chip')) {
     const chip = e.target.closest('.spec-chip');
@@ -1277,8 +1320,10 @@ rollBtn.addEventListener('click', () => {
     rollHint.textContent = warning + ' Rolling best effort.';
     rollHint.className = 'error';
   } else {
-    rollHint.textContent = players.length > 5
-      ? `${players.length} players — will generate multiple group compositions.`
+    const n2 = players.length;
+    const groups2 = n2 % 5 === 0 ? n2 / 5 : n2 % 5;
+    rollHint.textContent = n2 > 5
+      ? `${n2} players — will generate ${groups2} group${groups2 > 1 ? 's' : ''}.`
       : '';
     rollHint.className = '';
   }
