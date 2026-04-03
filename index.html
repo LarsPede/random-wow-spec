@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>M+ Spec Randomizer</title>
+  <style>
+    /* ===== VARIABLES ===== */
+    :root {
+      --bg:          #0c0d0e;
+      --bg-panel:    #161820;
+      --bg-alt:      #1e2028;
+      --bg-input:    #12141a;
+      --border:      #2a2d38;
+      --border-hover:#3d4155;
+      --text:        #e2d5b8;
+      --text-muted:  #6e7080;
+      --gold:        #c8a951;
+      --gold-bright: #e8c96a;
+      --gold-dim:    #7a6530;
+      --tank:        #4a90d9;
+      --healer:      #5cb85c;
+      --dps:         #d9534f;
+      --radius:      8px;
+      --radius-sm:   4px;
+    }
+
+    /* ===== RESET ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    /* ===== LAYOUT ===== */
+    #app {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* ===== HEADER ===== */
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: clamp(22px, 4vw, 36px);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--gold);
+      text-shadow: 0 0 20px rgba(200,169,81,0.35);
+    }
+    header h1 span { color: var(--text); font-weight: 300; }
+    header p {
+      margin-top: 6px;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-style: italic;
+    }
+
+    /* ===== PLAYER SECTION ===== */
+    #player-section {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    #player-section h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    #player-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .player-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .player-num {
+      width: 22px;
+      text-align: right;
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .player-name-input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 14px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .player-name-input:focus { border-color: var(--gold-dim); }
+    .player-name-input::placeholder { color: var(--text-muted); }
+    .btn-remove {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .btn-remove:hover { color: #e05555; border-color: #5a2020; background: #2a1212; }
+    .btn-remove:disabled { opacity: 0.2; cursor: default; }
+    .btn-remove:disabled:hover { color: var(--text-muted); border-color: transparent; background: none; }
+    #btn-add-player {
+      background: none;
+      border: 1px dashed var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    #btn-add-player:hover { color: var(--text); border-color: var(--border-hover); }
+
+    /* ===== ROLL BUTTON ===== */
+    #roll-wrap {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    #roll-btn {
+      background: linear-gradient(160deg, #2a2206, #1a1503);
+      border: 2px solid var(--gold-dim);
+      color: var(--gold);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 14px 44px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+    }
+    #roll-btn:hover:not(:disabled) {
+      border-color: var(--gold);
+      color: var(--gold-bright);
+      box-shadow: 0 0 16px rgba(200,169,81,0.3);
+    }
+    #roll-btn:disabled { opacity: 0.45; cursor: default; }
+    #roll-btn.rolling {
+      animation: btnPulse 0.7s ease-in-out infinite;
+    }
+    @keyframes btnPulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(200,169,81,0.2); }
+      50%       { box-shadow: 0 0 24px rgba(200,169,81,0.5), 0 0 48px rgba(200,169,81,0.15); }
+    }
+    #roll-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      min-height: 18px;
+    }
+    #roll-hint.error { color: #d95050; }
+
+    /* ===== RESULTS ===== */
+    #results { display: none; }
+    #results.visible { display: block; }
+    #results-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    #results-header h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .compositions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    /* ===== COMPOSITION CARD ===== */
+    .comp-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      animation: slideIn 0.35s ease both;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .comp-card-header {
+      background: var(--bg-alt);
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .comp-rows { padding: 6px 0; }
+    .comp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      animation: fadeUp 0.3s ease both;
+    }
+    .comp-row:last-child { border-bottom: none; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .role-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 7px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      width: 46px;
+      text-align: center;
+    }
+    .role-badge.tank   { background: rgba(74,144,217,0.18); color: var(--tank); border: 1px solid rgba(74,144,217,0.3); }
+    .role-badge.healer { background: rgba(92,184,92,0.15);  color: var(--healer); border: 1px solid rgba(92,184,92,0.3); }
+    .role-badge.dps    { background: rgba(217,83,79,0.15);  color: var(--dps); border: 1px solid rgba(217,83,79,0.3); }
+    .player-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .spec-label {
+      font-size: 14px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .spec-label .spec-name { font-weight: 700; }
+    .spec-label .class-name { font-weight: 400; font-size: 12px; opacity: 0.75; }
+
+    /* ===== BENCH ===== */
+    .bench-section {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-alt);
+    }
+    .bench-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .bench-players {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .bench-chip {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 3px 8px;
+    }
+
+    /* ===== SLOT MACHINE EFFECT ===== */
+    .spec-label.scrambling .spec-name,
+    .spec-label.scrambling .class-name {
+      opacity: 0.6;
+      filter: blur(0.5px);
+    }
+
+    /* ===== EXCLUSION TOGGLE BUTTON ===== */
+    .btn-exclude {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+      position: relative;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .btn-exclude:hover { color: var(--gold); border-color: var(--gold-dim); background: rgba(200,169,81,0.07); }
+    .btn-exclude.active { color: var(--gold); border-color: var(--gold-dim); background: rgba(200,169,81,0.1); }
+    .exclude-count {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: var(--dps);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    /* ===== EXCLUSION PANEL ===== */
+    .exclude-panel {
+      display: none;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+      padding: 12px 14px;
+      margin-left: 30px; /* align with input */
+      margin-top: -4px;
+    }
+    .exclude-panel.open { display: block; }
+    .exclude-panel-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .btn-clear-exclusions {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 0;
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 400;
+      transition: color 0.15s;
+    }
+    .btn-clear-exclusions:hover { color: var(--text); }
+    .class-group { margin-bottom: 10px; }
+    .class-group:last-child { margin-bottom: 0; }
+    .class-group-name {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .spec-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .spec-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: opacity 0.15s, text-decoration 0.15s;
+      user-select: none;
+      background: var(--bg-input);
+    }
+    .spec-chip .chip-role {
+      font-size: 9px;
+      font-weight: 400;
+      opacity: 0.6;
+      margin-left: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .spec-chip.excluded {
+      opacity: 0.35;
+      text-decoration: line-through;
+      border-color: var(--border);
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>M+ <span>Spec</span> Randomizer</h1>
+    <p>Let fate decide your role in the dungeon.</p>
+  </header>
+
+  <section id="player-section">
+    <h2>Players</h2>
+    <div id="player-list"></div>
+    <button id="btn-add-player">+ Add Player</button>
+  </section>
+
+  <div id="roll-wrap">
+    <button id="roll-btn">Roll the Dice</button>
+    <div id="roll-hint"></div>
+  </div>
+
+  <section id="results">
+    <div id="results-header"><h2>Compositions</h2></div>
+    <div class="compositions-grid" id="comp-grid"></div>
+  </section>
+</div>
+
+<script>
+// ===== DATA =====
+const CLASSES = {
+  "Death Knight": {
+    color: "#C41E3A",
+    specs: [
+      { name: "Blood",  role: "tank" },
+      { name: "Frost",  role: "dps"  },
+      { name: "Unholy", role: "dps"  }
+    ]
+  },
+  "Demon Hunter": {
+    color: "#A330C9",
+    specs: [
+      { name: "Vengeance", role: "tank" },
+      { name: "Havoc",     role: "dps"  }
+    ]
+  },
+  "Druid": {
+    color: "#FF7C0A",
+    specs: [
+      { name: "Guardian",    role: "tank"   },
+      { name: "Restoration", role: "healer" },
+      { name: "Balance",     role: "dps"    },
+      { name: "Feral",       role: "dps"    }
+    ]
+  },
+  "Evoker": {
+    color: "#33937F",
+    specs: [
+      { name: "Preservation", role: "healer" },
+      { name: "Devastation",  role: "dps"    },
+      { name: "Augmentation", role: "dps"    }
+    ]
+  },
+  "Hunter": {
+    color: "#AAD372",
+    specs: [
+      { name: "Beast Mastery",  role: "dps" },
+      { name: "Marksmanship",   role: "dps" },
+      { name: "Survival",       role: "dps" }
+    ]
+  },
+  "Mage": {
+    color: "#3FC7EB",
+    specs: [
+      { name: "Arcane", role: "dps" },
+      { name: "Fire",   role: "dps" },
+      { name: "Frost",  role: "dps" }
+    ]
+  },
+  "Monk": {
+    color: "#00FF98",
+    specs: [
+      { name: "Brewmaster", role: "tank"   },
+      { name: "Mistweaver", role: "healer" },
+      { name: "Windwalker", role: "dps"    }
+    ]
+  },
+  "Paladin": {
+    color: "#F48CBA",
+    specs: [
+      { name: "Protection",  role: "tank"   },
+      { name: "Holy",        role: "healer" },
+      { name: "Retribution", role: "dps"    }
+    ]
+  },
+  "Priest": {
+    color: "#FFFFFF",
+    specs: [
+      { name: "Discipline", role: "healer" },
+      { name: "Holy",       role: "healer" },
+      { name: "Shadow",     role: "dps"    }
+    ]
+  },
+  "Rogue": {
+    color: "#FFF468",
+    specs: [
+      { name: "Assassination", role: "dps" },
+      { name: "Outlaw",        role: "dps" },
+      { name: "Subtlety",      role: "dps" }
+    ]
+  },
+  "Shaman": {
+    color: "#0070DD",
+    specs: [
+      { name: "Restoration", role: "healer" },
+      { name: "Elemental",   role: "dps"    },
+      { name: "Enhancement", role: "dps"    }
+    ]
+  },
+  "Warlock": {
+    color: "#8788EE",
+    specs: [
+      { name: "Affliction",  role: "dps" },
+      { name: "Demonology",  role: "dps" },
+      { name: "Destruction", role: "dps" }
+    ]
+  },
+  "Warrior": {
+    color: "#C69B3A",
+    specs: [
+      { name: "Protection", role: "tank" },
+      { name: "Arms",       role: "dps"  },
+      { name: "Fury",       role: "dps"  }
+    ]
+  }
+};
+
+// Build flat spec pools by role, each entry: { className, specName, role, color }
+const SPEC_POOLS = (() => {
+  const pools = { tank: [], healer: [], dps: [] };
+  for (const [className, cls] of Object.entries(CLASSES)) {
+    for (const spec of cls.specs) {
+      pools[spec.role].push({ className, specName: spec.name, role: spec.role, color: cls.color });
+    }
+  }
+  return pools;
+})();
+
+// ===== UTILITIES =====
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function pickUnused(pool, used) {
+  for (const s of pool) {
+    const key = s.className + ':' + s.specName;
+    if (!used.has(key)) { used.add(key); return s; }
+  }
+  // All specs used (very unlikely) — allow repeat
+  return pool[0];
+}
+
+function specKey(s) { return s.className + ':' + s.specName; }
+
+// ===== ALGORITHM =====
+function buildComposition(playerSlots) {
+  // playerSlots: [{ player, role, excluded: Set }, ...] — 1 tank, 1 healer, 3 dps
+  const used = new Set();
+  const tanks    = shuffle(SPEC_POOLS.tank);
+  const healers  = shuffle(SPEC_POOLS.healer);
+  const dpsSpecs = shuffle(SPEC_POOLS.dps);
+
+  const roleQueues = { tank: tanks, healer: healers, dps: dpsSpecs };
+
+  return playerSlots.map(slot => {
+    const excl = slot.excluded || new Set();
+    const queue = roleQueues[slot.role];
+
+    // Prefer specs not excluded by this player and not used in this group
+    const preferred = queue.filter(s => !excl.has(specKey(s)));
+    // If no preferred specs remain unused, fall back to any unused spec, then allow repeat
+    const pool = preferred.length > 0 ? preferred : queue;
+    const spec = pickUnused(pool, used);
+    return { player: slot.player, ...spec };
+  });
+}
+
+function slotKey(slots) {
+  // A string fingerprint of the player→role mapping for dedup
+  return slots.map(s => `${s.player}:${s.role}`).sort().join('|');
+}
+
+function generateCompositions(namedPlayers, playerExclusions) {
+  // namedPlayers: string[] — resolved display names
+  // playerExclusions: Map<name, Set> — exclusions keyed by resolved name
+  const count = namedPlayers.length;
+
+  function makeSlots(chosen, roles) {
+    return chosen.map((p, i) => ({
+      player: p,
+      role: roles[i],
+      excluded: playerExclusions.get(p) || new Set()
+    }));
+  }
+
+  if (count < 5) return [];
+
+  if (count === 5) {
+    const roles = shuffle(['tank', 'healer', 'dps', 'dps', 'dps']);
+    const slots = makeSlots(shuffle(namedPlayers), roles);
+    return [{ rows: buildComposition(slots), bench: [] }];
+  }
+
+  // >5 players: generate up to 3 distinct compositions
+  const TARGET = 3;
+  const results = [];
+  const seenKeys = new Set();
+  let attempts = 0;
+
+  while (results.length < TARGET && attempts < 80) {
+    attempts++;
+    const chosen = shuffle(namedPlayers).slice(0, 5);
+    const bench  = namedPlayers.filter(p => !chosen.includes(p));
+    const roles  = shuffle(['tank', 'healer', 'dps', 'dps', 'dps']);
+    const slots  = makeSlots(chosen, roles);
+    const key    = slotKey(slots);
+
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    results.push({ rows: buildComposition(slots), bench });
+  }
+
+  return results;
+}
+
+// ===== STATE =====
+let players = ['', '', '', '', ''];
+// exclusions[i] = Set of "className:specName" strings excluded for player i
+let exclusions = [new Set(), new Set(), new Set(), new Set(), new Set()];
+
+// ===== DOM HELPERS =====
+const playerList = document.getElementById('player-list');
+const rollBtn    = document.getElementById('roll-btn');
+const rollHint   = document.getElementById('roll-hint');
+const results    = document.getElementById('results');
+const compGrid   = document.getElementById('comp-grid');
+
+function playerName(i) {
+  return players[i].trim() || `Player ${i + 1}`;
+}
+
+function renderPlayerList() {
+  // Preserve open panels across re-renders
+  const openPanels = new Set();
+  playerList.querySelectorAll('.exclude-panel.open').forEach(el => {
+    openPanels.add(+el.dataset.index);
+  });
+
+  playerList.innerHTML = '';
+  players.forEach((name, i) => {
+    const excl = exclusions[i] || new Set();
+    const exclCount = excl.size;
+
+    // Main row
+    const row = document.createElement('div');
+    row.className = 'player-row';
+    row.innerHTML = `
+      <span class="player-num">${i + 1}.</span>
+      <input class="player-name-input" type="text" placeholder="Player ${i + 1}" value="${escHtml(name)}" data-index="${i}" />
+      <button class="btn-exclude${exclCount > 0 ? ' active' : ''}" data-index="${i}" title="Exclude specs">
+        ⊘${exclCount > 0 ? `<span class="exclude-count">${exclCount}</span>` : ''}
+      </button>
+      <button class="btn-remove" data-index="${i}" title="Remove" ${players.length <= 2 ? 'disabled' : ''}>×</button>
+    `;
+    playerList.appendChild(row);
+
+    // Exclusion panel
+    const panel = document.createElement('div');
+    panel.className = 'exclude-panel' + (openPanels.has(i) ? ' open' : '');
+    panel.dataset.index = i;
+    panel.innerHTML = `
+      <div class="exclude-panel-header">
+        <span>Exclude specs (won't be assigned these)</span>
+        ${exclCount > 0 ? `<button class="btn-clear-exclusions" data-index="${i}">Clear all (${exclCount})</button>` : ''}
+      </div>
+      <div class="class-groups">
+        ${Object.entries(CLASSES).map(([className, cls]) => `
+          <div class="class-group">
+            <div class="class-group-name" style="color:${cls.color}">${escHtml(className)}</div>
+            <div class="spec-chips">
+              ${cls.specs.map(spec => {
+                const key = className + ':' + spec.name;
+                const isExcl = excl.has(key);
+                return `<span class="spec-chip${isExcl ? ' excluded' : ''}"
+                  style="color:${cls.color};border-color:${isExcl ? 'var(--border)' : cls.color}22"
+                  data-player="${i}" data-key="${escHtml(key)}"
+                >${escHtml(spec.name)}<span class="chip-role">${spec.role}</span></span>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    playerList.appendChild(panel);
+  });
+  updateHint();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function updateHint() {
+  if (players.length < 5) {
+    rollHint.textContent = `Need at least 5 players (${5 - players.length} more needed).`;
+    rollHint.className = 'error';
+    rollBtn.disabled = true;
+  } else {
+    rollHint.textContent = players.length > 5
+      ? `${players.length} players — will generate multiple group compositions.`
+      : '';
+    rollHint.className = '';
+    rollBtn.disabled = false;
+  }
+}
+
+// ===== RENDER RESULTS =====
+function renderCompositions(compositions) {
+  compGrid.innerHTML = '';
+  results.classList.add('visible');
+
+  compositions.forEach((comp, ci) => {
+    const card = document.createElement('div');
+    card.className = 'comp-card';
+    card.style.animationDelay = `${ci * 80}ms`;
+
+    const header = document.createElement('div');
+    header.className = 'comp-card-header';
+    header.textContent = compositions.length > 1 ? `Group ${ci + 1}` : 'Your Group';
+    card.appendChild(header);
+
+    const rowsWrap = document.createElement('div');
+    rowsWrap.className = 'comp-rows';
+
+    comp.rows.forEach((entry, ri) => {
+      const row = document.createElement('div');
+      row.className = 'comp-row';
+      row.style.animationDelay = `${ci * 80 + ri * 55 + 100}ms`;
+
+      const badge = document.createElement('span');
+      badge.className = `role-badge ${entry.role}`;
+      badge.textContent = entry.role === 'healer' ? 'Heal' : entry.role.charAt(0).toUpperCase() + entry.role.slice(1);
+
+      const playerLbl = document.createElement('span');
+      playerLbl.className = 'player-label';
+      playerLbl.textContent = entry.player;
+      playerLbl.title = entry.player;
+
+      const specLbl = document.createElement('span');
+      specLbl.className = 'spec-label';
+      specLbl.style.color = entry.color;
+      specLbl.innerHTML = `<span class="spec-name">${escHtml(entry.specName)}</span> <span class="class-name">${escHtml(entry.className)}</span>`;
+
+      row.appendChild(badge);
+      row.appendChild(playerLbl);
+      row.appendChild(specLbl);
+      rowsWrap.appendChild(row);
+    });
+
+    card.appendChild(rowsWrap);
+
+    if (comp.bench && comp.bench.length > 0) {
+      const benchSec = document.createElement('div');
+      benchSec.className = 'bench-section';
+      benchSec.innerHTML = `<div class="bench-label">Bench</div><div class="bench-players">${
+        comp.bench.map(p => `<span class="bench-chip">${escHtml(p)}</span>`).join('')
+      }</div>`;
+      card.appendChild(benchSec);
+    }
+
+    compGrid.appendChild(card);
+  });
+}
+
+// ===== SLOT MACHINE ANIMATION =====
+function runSlotMachine(finalCompositions) {
+  rollBtn.disabled = true;
+  rollBtn.classList.add('rolling');
+  rollBtn.textContent = 'Rolling...';
+
+  // Show placeholder cards immediately
+  compGrid.innerHTML = '';
+  results.classList.add('visible');
+
+  const placeholders = finalCompositions.map((comp, ci) => {
+    const card = document.createElement('div');
+    card.className = 'comp-card';
+    const header = document.createElement('div');
+    header.className = 'comp-card-header';
+    header.textContent = finalCompositions.length > 1 ? `Group ${ci + 1}` : 'Your Group';
+    card.appendChild(header);
+
+    const rowsWrap = document.createElement('div');
+    rowsWrap.className = 'comp-rows';
+
+    const specEls = [];
+    comp.rows.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'comp-row';
+
+      const badge = document.createElement('span');
+      badge.className = `role-badge ${entry.role}`;
+      badge.textContent = entry.role === 'healer' ? 'Heal' : entry.role.charAt(0).toUpperCase() + entry.role.slice(1);
+
+      const playerLbl = document.createElement('span');
+      playerLbl.className = 'player-label';
+      playerLbl.textContent = entry.player;
+
+      const specLbl = document.createElement('span');
+      specLbl.className = 'spec-label scrambling';
+      specLbl.style.color = '#888';
+      specLbl.innerHTML = `<span class="spec-name">???</span> <span class="class-name">???</span>`;
+
+      row.appendChild(badge);
+      row.appendChild(playerLbl);
+      row.appendChild(specLbl);
+      rowsWrap.appendChild(row);
+      specEls.push(specLbl);
+    });
+
+    card.appendChild(rowsWrap);
+    compGrid.appendChild(card);
+    return { specEls, finalRows: comp.rows };
+  });
+
+  // All specs for random display
+  const allSpecs = [...SPEC_POOLS.tank, ...SPEC_POOLS.healer, ...SPEC_POOLS.dps];
+
+  const STAGES = [
+    { interval: 70,  duration: 550  },
+    { interval: 130, duration: 400  },
+    { interval: 260, duration: 400  },
+  ];
+
+  let stageIndex = 0;
+  let intervalId = null;
+
+  function runStage() {
+    if (stageIndex >= STAGES.length) {
+      // Reveal finals
+      placeholders.forEach(({ specEls, finalRows }) => {
+        specEls.forEach((el, i) => {
+          const entry = finalRows[i];
+          el.classList.remove('scrambling');
+          el.style.color = entry.color;
+          el.innerHTML = `<span class="spec-name">${escHtml(entry.specName)}</span> <span class="class-name">${escHtml(entry.className)}</span>`;
+        });
+      });
+      rollBtn.classList.remove('rolling');
+      rollBtn.disabled = false;
+      rollBtn.textContent = 'Roll Again';
+      return;
+    }
+
+    const { interval, duration } = STAGES[stageIndex];
+    intervalId = setInterval(() => {
+      placeholders.forEach(({ specEls }) => {
+        specEls.forEach(el => {
+          const s = allSpecs[Math.floor(Math.random() * allSpecs.length)];
+          el.style.color = s.color;
+          el.innerHTML = `<span class="spec-name">${escHtml(s.specName)}</span> <span class="class-name">${escHtml(s.className)}</span>`;
+        });
+      });
+    }, interval);
+
+    setTimeout(() => {
+      clearInterval(intervalId);
+      stageIndex++;
+      runStage();
+    }, duration);
+  }
+
+  setTimeout(runStage, 100);
+}
+
+// ===== EVENTS =====
+document.getElementById('btn-add-player').addEventListener('click', () => {
+  if (players.length >= 10) return;
+  players.push('');
+  exclusions.push(new Set());
+  renderPlayerList();
+});
+
+playerList.addEventListener('input', e => {
+  if (e.target.matches('.player-name-input')) {
+    players[+e.target.dataset.index] = e.target.value;
+    updateHint();
+  }
+});
+
+playerList.addEventListener('click', e => {
+  // Remove player
+  if (e.target.closest('.btn-remove') && !e.target.closest('.btn-remove').disabled) {
+    const i = +e.target.closest('.btn-remove').dataset.index;
+    players.splice(i, 1);
+    exclusions.splice(i, 1);
+    renderPlayerList();
+    return;
+  }
+
+  // Toggle exclusion panel
+  if (e.target.closest('.btn-exclude')) {
+    const i = +e.target.closest('.btn-exclude').dataset.index;
+    const panel = playerList.querySelector(`.exclude-panel[data-index="${i}"]`);
+    if (panel) panel.classList.toggle('open');
+    return;
+  }
+
+  // Clear all exclusions for a player
+  if (e.target.matches('.btn-clear-exclusions')) {
+    const i = +e.target.dataset.index;
+    exclusions[i] = new Set();
+    renderPlayerList();
+    return;
+  }
+
+  // Toggle individual spec chip
+  if (e.target.closest('.spec-chip')) {
+    const chip = e.target.closest('.spec-chip');
+    const i   = +chip.dataset.player;
+    const key = chip.dataset.key;
+    if (!exclusions[i]) exclusions[i] = new Set();
+    if (exclusions[i].has(key)) {
+      exclusions[i].delete(key);
+    } else {
+      exclusions[i].add(key);
+    }
+    renderPlayerList();
+    return;
+  }
+});
+
+rollBtn.addEventListener('click', () => {
+  const named = players.map((p, i) => p.trim() || `Player ${i + 1}`);
+  // Build exclusion map keyed by resolved name
+  const exclMap = new Map();
+  named.forEach((name, i) => exclMap.set(name, exclusions[i] || new Set()));
+  const compositions = generateCompositions(named, exclMap);
+  if (!compositions.length) return;
+  runSlotMachine(compositions);
+});
+
+// ===== INIT =====
+renderPlayerList();
+</script>
+</body>
+</html>
